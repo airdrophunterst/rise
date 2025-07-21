@@ -7,7 +7,9 @@ const settings = {
   MAX_LEVEL_SPEED: process.env.MAX_LEVEL_SPEED ? parseInt(process.env.MAX_LEVEL_SPEED) : 10,
   MAX_THEADS_NO_PROXY: process.env.MAX_THEADS_NO_PROXY ? parseInt(process.env.MAX_THEADS_NO_PROXY) : 10,
   AMOUNT_REF: process.env.AMOUNT_REF ? parseInt(process.env.AMOUNT_REF) : 100,
-  NUMBER_OF_TRANSFER: process.env.NUMBER_OF_TRANSFER ? parseInt(process.env.NUMBER_OF_TRANSFER) : 100,
+  NUMBER_OF_TRANSFER: process.env.NUMBER_OF_TRANSFER ? parseInt(process.env.NUMBER_OF_TRANSFER) : 10,
+  NUMBER_OF_SWAP: process.env.NUMBER_OF_SWAP ? parseInt(process.env.NUMBER_OF_SWAP) : 10,
+
   ESTIMATED_GAS: process.env.ESTIMATED_GAS ? parseInt(process.env.ESTIMATED_GAS) : 200000,
 
   SKIP_TASKS: process.env.SKIP_TASKS ? JSON.parse(process.env.SKIP_TASKS.replace(/'/g, '"')) : [],
@@ -40,9 +42,9 @@ const settings = {
   API_ID: process.env.API_ID ? process.env.API_ID : null,
   BASE_URL: process.env.BASE_URL ? process.env.BASE_URL : "https://game-api-v2.xoob.gg/api",
   BASE_URL_v2: process.env.BASE_URL_v2 ? process.env.BASE_URL_v2 : "https://game-api.xoob.gg/g",
-  REF_CODE: process.env.REF_CODE ? process.env.REF_CODE : "leduychung",
-  RPC_URL: process.env.RPC_URL ? process.env.RPC_URL : "https://evmrpc-testnet.0g.ai",
-  CHAIN_ID: process.env.CHAIN_ID ? process.env.CHAIN_ID : 16600,
+  REF_CODE: process.env.REF_CODE ? process.env.REF_CODE : "",
+  RPC_URL: process.env.RPC_URL ? process.env.RPC_URL : "https://testnet.riselabs.xyz",
+  CHAIN_ID: process.env.CHAIN_ID ? process.env.CHAIN_ID : 11155931,
 
   TYPE_CAPTCHA: process.env.TYPE_CAPTCHA ? process.env.TYPE_CAPTCHA : null,
   API_KEY_2CAPTCHA: process.env.API_KEY_2CAPTCHA ? process.env.API_KEY_2CAPTCHA : null,

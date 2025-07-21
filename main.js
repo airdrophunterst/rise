@@ -168,12 +168,10 @@ class ClientAPI {
   async depositETHToGateway(wallet) {
     try {
       this.log(colors.yellow("WARNING: Verify WrappedTokenGatewayV3 address for Rise Testnet before proceeding."));
-
       const feeData = await wallet.provider.getFeeData();
       const gasPrice = feeData.gasPrice;
       const estimatedGas = 310079n;
       const gasCost = gasPrice * estimatedGas;
-
       const balance = await wallet.provider.getBalance(wallet.address);
 
       // Kiểm tra xem số dư có đủ để chi trả phí gas không
@@ -182,23 +180,21 @@ class ClientAPI {
         return null; // Bỏ qua nếu không đủ phí gas
       }
 
-      let amount = getRandomNumber(settings.AMOUNT_DEPOSIT[0], settings.AMOUNT_DEPOSIT[1]);
-      let amountWei = ethers.parseEther(amount.toString());
+      let amount = getRandomNumber(settings.AMOUNT_DEPOSIT[0], settings.AMOUNT_DEPOSIT[1], 4);
+      let amountWei = ethers.parseUnits(amount.toString(), 18);
       const totalCost = amountWei + gasCost; // Tổng chi phí tính bằng Wei
 
-      // Kiểm tra số dư cho tổng chi phí
       if (balance < totalCost) {
-        const availableAmount = ethers.formatEther(balance - gasCost); // Số dư sau khi trừ phí gas
+        const availableAmount = ethers.formatUnits(balance - gasCost, 18);
         amount = parseFloat(availableAmount) * 0.85; // Gán amount cho 85% số dư hiện tại
-        amountWei = ethers.parseEther(amount.toString());
-
-        this.log(colors.yellow(`Insufficient balance for amount. Adjusting to ${amount} ETH.`));
+        amountWei = ethers.parseUnits(amount.toFixed(8).toString(), 18);
+        this.log(colors.yellow(`Insufficient balance for deposit, current: ${ethers.formatEther(String(balance))} (required: ${amount}). Adjusting to ${amount} ETH.`));
       }
 
       const gatewayContract = new ethers.Contract(CONTRACT_ADDRESSES.WrappedTokenGatewayV3, WrappedTokenGatewayV3ABI, wallet);
 
       this.log(colors.yellow(`Supplying ${amount} ETH to Inari Bank...`));
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+      const nonce = await this.getNonce(wallet);
       const tx = await gatewayContract.depositETH("0x81edb206Fd1FB9dC517B61793AaA0325c8d11A23", wallet.address, 0, {
         value: amountWei,
         gasLimit: estimatedGas,
@@ -220,35 +216,50 @@ class ClientAPI {
     try {
       this.log(colors.yellow("WARNING: Verify WrappedTokenGatewayV3 address for Rise Testnet before proceeding."));
 
-      const feeData = await wallet.provider.getGasFee();
-      const estimatedGas = 310079n;
-      const gasCost = feeData.gasPrice * estimatedGas;
+      // Get contract instance
+      const gatewayContract = new ethers.Contract(CONTRACT_ADDRESSES.WrappedTokenGatewayV3, WrappedTokenGatewayV3ABI, wallet);
 
+      // Get user's WETH balance in the gateway (if applicable)
+      // If the contract has a method to check deposited balance, use it here.
+      // Example: const depositedBalance = await gatewayContract.balanceOf(wallet.address);
+
+      const feeData = await wallet.provider.getFeeData();
+      const estimatedGas = await gatewayContract.withdrawETH
+        .estimateGas(
+          "0x81edb206Fd1FB9dC517B61793AaA0325c8d11A23",
+          ethers.parseEther("0.01"), // placeholder, will update below
+          wallet.address,
+          {
+            maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+            maxFeePerGas: feeData.maxFeePerGas,
+          }
+        )
+        .catch(() => 310079n); // fallback to default if estimation fails
+
+      const gasCost = feeData.gasPrice * estimatedGas;
       const balance = await wallet.provider.getBalance(wallet.address);
 
-      // Kiểm tra xem số dư có đủ để chi trả phí gas không
       if (balance < gasCost) {
         this.log(colors.red(`Insufficient balance for gas. Available: ${ethers.formatEther(balance)} ETH | Required: ${ethers.formatEther(gasCost)} ETH 🚫`));
-        return null; // Bỏ qua nếu không đủ phí gas
+        return null;
       }
 
       let amount = getRandomNumber(settings.AMOUNT_WITHDRAW[0], settings.AMOUNT_WITHDRAW[1]);
       let amountWei = ethers.parseEther(amount.toString());
-      const totalCost = amountWei + gasCost; // tổng chi phí tính bằng Wei
+      const totalCost = amountWei + gasCost;
 
-      // Kiểm tra số dư cho tổng chi phí
       if (balance < totalCost) {
-        const availableAmount = ethers.formatEther(balance - gasCost); // Số dư sau khi trừ phí gas
-        amount = parseFloat(availableAmount) * 0.85; // Gán amount cho 85% số dư hiện tại
-        amountWei = ethers.parseEther(amount.toString());
-
+        const availableAmount = ethers.formatEther(balance - gasCost);
+        amount = parseFloat(availableAmount) * 0.85;
+        amountWei = ethers.parseEther(amount.toFixed(8).toString());
         this.log(colors.yellow(`Insufficient balance for amount. Adjusting to ${amount} ETH.`));
       }
 
-      const gatewayContract = new ethers.Contract(CONTRACT_ADDRESSES.WrappedTokenGatewayV3, WrappedTokenGatewayV3ABI, wallet);
+      // Optionally: Check deposited balance and adjust amountWei if needed
 
-      this.log(colors.yellow(`Supplying ${amount} ETH to Inari Bank...`));
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+      this.log(colors.yellow(`Withdrawing ${amount} ETH from Inari Bank...`));
+      const nonce = await this.getNonce(wallet);
+
       const tx = await gatewayContract.withdrawETH("0x81edb206Fd1FB9dC517B61793AaA0325c8d11A23", amountWei, wallet.address, {
         gasLimit: estimatedGas,
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
@@ -261,7 +272,11 @@ class ClientAPI {
       const receipt = await tx.wait();
       this.log(colors.green(`Transaction confirmed in block ${receipt.blockNumber} ✅`));
     } catch (error) {
-      this.log(colors.red(`Error withdraw ETH: ${error.message}❌`));
+      this.log(colors.red(`Error: ${error.message}`));
+      if (error.reason) this.log(colors.red(`Reason: ${error.reason}`));
+      if (error.data) this.log(colors.red(`Data: ${JSON.stringify(error.data)}`));
+      if (error.error) this.log(colors.red(`Error object: ${JSON.stringify(error.error)}`));
+      console.error(error);
     }
   }
 
@@ -283,8 +298,7 @@ class ClientAPI {
         return null;
       }
 
-      this.log(colors.yellow(`Sending ${amount} ETH to random address: ${colors.cyan(toAddress)} 📤`));
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+      const nonce = await this.getNonce(wallet);
       const tx = await wallet.sendTransaction({
         to: toAddress,
         value: amountWei,
@@ -325,14 +339,14 @@ class ClientAPI {
       if (balance < totalCost) {
         const availableAmount = ethers.formatEther(balance - gasCost); // Balance after subtracting gas cost
         amount = parseFloat(availableAmount) * 0.85; // Set amount to 85% of current balance
-        amountWei = ethers.parseEther(amount.toString());
+        amountWei = ethers.parseEther(amount.toFixed(18).toString());
         this.log(colors.yellow(`Insufficient balance for amount. Adjusting to ${amount} ETH.`));
       }
 
       const wethContract = new ethers.Contract(CONTRACT_ADDRESSES.WETH, WETH_ABI, wallet);
 
       console.log(colors.yellow(`Wrapping ${amount} ETH to WETH...`));
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+      const nonce = await this.getNonce(wallet);
       const tx = await wethContract.deposit({
         value: amountWei,
         gasLimit: estimatedGas,
@@ -373,12 +387,12 @@ class ClientAPI {
       if (balance < totalCost) {
         const availableAmount = ethers.formatEther(balance - gasCost); // Số dư sau khi trừ phí gas
         amount = parseFloat(availableAmount) * 0.85; // Gán amount cho 85% số dư hiện tại
-        amountWei = ethers.parseEther(amount.toString());
+        amountWei = ethers.parseEther(amount.toFixed(18).toString());
         this.log(colors.yellow(`Insufficient balance for amount. Adjusting to ${amount} WETH.`));
       }
 
       console.log(colors.yellow(`UnWrapping ${amount} WETH...`));
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+      const nonce = await this.getNonce(wallet);
       const tx = await wethContract.withdraw(amountWei, {
         gasLimit: estimatedGas,
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
@@ -412,7 +426,7 @@ class ClientAPI {
           this.log(colors.red(`Insufficient balance for gas. Available: ${ethers.formatEther(balance)} ETH | Required: ${ethers.formatEther(gasCost)} ETH 🚫`));
           return false; // Bỏ qua nếu không đủ phí gas
         }
-        const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+        const nonce = await this.getNonce(wallet);
         this.log(colors.yellow(`Approving ${ethers.formatUnits(amountWei, tokenSymbol === "WETH" ? 18 : 6)} ${tokenSymbol} for ${spender}...`));
         const tx = await tokenContract.approve(spender, amountWei, {
           gasLimit: estimatedGas,
@@ -451,7 +465,7 @@ class ClientAPI {
         return false; // Bỏ qua nếu không đủ phí gas
       }
 
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+      const nonce = await this.getNonce(wallet);
       this.log(colors.yellow(`Approving ${amount} WETH for DODOFeeRouteProxy...`));
       const tx = await wethContract.approve(CONTRACT_ADDRESSES.DODOFeeRouteProxy, amountWei, {
         gasLimit: estimatedGas,
@@ -470,94 +484,87 @@ class ClientAPI {
       return false;
     }
   }
-  async swapWETHtoUSDC(wallet) {
+
+  async getNonce(wallet) {
+    const pendingNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+    const latestNonce = await wallet.provider.getTransactionCount(wallet.address, "latest");
+
+    return pendingNonce > latestNonce ? pendingNonce : latestNonce;
+  }
+
+  async _swap(wallet, fromTokenAddress, toTokenAddress, amount, fromTokenSymbol, toTokenSymbol) {
     try {
-      const amount = getRandomNumber(settings.AMOUNT_SWAP[0], settings.AMOUNT_SWAP[1]);
-      const amountWei = ethers.parseEther(amount.toString());
-      const feeData = await wallet.provider.getFeeData();
-      const estimatedGas = 300000n; // Sử dụng BigInt cho gas limit
-      const gasCost = feeData.gasPrice * estimatedGas;
+      this.log(colors.yellow(`Preparing to swap ${fromTokenSymbol} to ${toTokenSymbol}...`));
 
-      const wethContract = new ethers.Contract(CONTRACT_ADDRESSES.WETH, WETH_ABI, wallet);
-      const wethBalance = await wethContract.balanceOf(wallet.address);
+      const fromTokenDecimals = fromTokenSymbol === "USDC" ? 6 : 18;
+      const amountWei = ethers.parseUnits(amount.toString(), fromTokenDecimals);
 
-      if (wethBalance < amountWei) {
-        this.log(colors.red(`Insufficient WETH balance. Available: ${ethers.formatEther(wethBalance)}, Required: ${amount} WETH`));
-        return; // Không đủ WETH
+      const tokenContract = new ethers.Contract(fromTokenAddress, USDC_ABI, wallet);
+      const tokenBalance = await tokenContract.balanceOf(wallet.address);
+
+      if (tokenBalance < amountWei) {
+        this.log(colors.red(`Insufficient ${fromTokenSymbol} balance. Available: ${ethers.formatUnits(tokenBalance, fromTokenDecimals)}, Required: ${amount} ${fromTokenSymbol}`));
+        return;
       }
 
+      // Fetch quote from 0x API
+      this.log("Getting quote from 0x API...");
+      const slippage = "0.05"; // 5% slippage
+      const qs = `buyToken=${toTokenAddress}&sellToken=${fromTokenAddress}&sellAmount=${amountWei.toString()}&slippagePercentage=${slippage}`;
+      const response = await axios.get(`https://optimism.api.0x.org/swap/v1/quote?${qs}`);
+      const quote = response.data;
+
       const balance = await wallet.provider.getBalance(wallet.address);
+      const gasCost = BigInt(quote.gasPrice) * BigInt(quote.gas);
 
       if (balance < gasCost) {
         this.log(colors.red(`Insufficient balance for gas. Available: ${ethers.formatEther(balance)} ETH | Required: ${ethers.formatEther(gasCost)} ETH 🚫`));
-        return; // Không đủ phí gas
+        return;
       }
 
-      const usdcPerWeth = 1071.568;
-      const expReturnAmount = ethers.parseUnits((amount * usdcPerWeth).toFixed(6), 6);
-      const minReturnAmount = ethers.parseUnits((amount * usdcPerWeth * 0.968).toFixed(6), 6);
+      const allowanceOk = await this.ensureTokenAllowance(wallet, fromTokenAddress, USDC_ABI, amountWei, quote.allowanceTarget, fromTokenSymbol);
 
-      const allowanceOk = await this.ensureTokenAllowance(wallet, CONTRACT_ADDRESSES.WETH, WETH_ABI, amountWei, CONTRACT_ADDRESSES.DODOFeeRouteProxy, "WETH");
       if (!allowanceOk) {
         this.log(colors.red("Cannot proceed with swap due to allowance issue. 🚫"));
         return;
       }
 
-      const dodoContract = new ethers.Contract(CONTRACT_ADDRESSES.DODOFeeRouteProxy, DODOFeeRouteProxyABI, wallet);
-      this.log(colors.yellow(`Swapping ${amount} WETH to USDC...`));
+      this.log(colors.yellow(`Swapping ${amount} ${fromTokenSymbol} to ${toTokenSymbol}...`));
+      const nonce = await this.getNonce(wallet);
 
-      const mixAdapters = ["0x0f9053E174c123098C17e60A2B1FAb3b303f9e29"];
-      const mixPairs = ["0xc7E2B7C2519bB911bA4a1eeE246Cb05ACb0b1df1"];
-      const assetTo = ["0xc7E2B7C2519bB911bA4a1eeE246Cb05ACb0b1df1", CONTRACT_ADDRESSES.DODOFeeRouteProxy];
-      const directions = 0;
-      const moreInfos = ["0x00"];
-      const feeDataHex = "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-      const deadline = Math.floor(Date.now() / 1000) + 3600;
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-      try {
-        const tx = await dodoContract.mixSwap(
-          CONTRACT_ADDRESSES.WETH,
-          CONTRACT_ADDRESSES.USDC,
-          amountWei,
-          expReturnAmount,
-          minReturnAmount,
-          mixAdapters,
-          mixPairs,
-          assetTo,
-          directions,
-          moreInfos,
-          feeDataHex,
-          deadline,
-          {
-            gasLimit: estimatedGas,
-            maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
-            maxFeePerGas: feeData.maxFeePerGas,
-            nonce,
-          }
-        );
+      const tx = await wallet.sendTransaction({
+        to: quote.to,
+        data: quote.data,
+        value: quote.value,
+        gasPrice: quote.gasPrice,
+        gasLimit: quote.gas,
+        nonce,
+      });
 
-        this.log(colors.white(`Transaction sent! Hash: ${colors.cyan(tx.hash)} 📤`));
-        this.log("Waiting for confirmation...");
-        const receipt = await tx.wait();
+      this.log(colors.white(`Transaction sent! Hash: ${colors.cyan(tx.hash)} 📤`));
+      this.log("Waiting for confirmation...");
+      const receipt = await tx.wait();
 
-        this.log(colors.green(`Transaction confirmed in block ${receipt.blockNumber} ✅`));
-        this.log(colors.green(`Successfully swapped ${amount} WETH to USDC! 🎉`));
-      } catch (error) {
-        this.log(colors.red("Swap execution failed:", error.message, "❌"));
-        if (error.reason) {
-          this.log(colors.red(`Revert reason: ${error.reason}`));
-        }
-        if (error.data) {
-          this.log(colors.red(`Revert data: ${error.data}`));
-        }
-      }
+      this.log(colors.green(`Transaction confirmed in block ${receipt.blockNumber} ✅`));
+      this.log(colors.green(`Successfully swapped ${amount} ${fromTokenSymbol} to ${toTokenSymbol}! 🎉`));
     } catch (error) {
-      this.log(colors.red(`Error in swap process: ${error.message} ❌`));
+      let errorMessage = error.message;
+      if (error.response && error.response.data && error.response.data.reason) {
+        errorMessage = `0x API Error: ${error.response.data.reason}`;
+      } else if (error.shortMessage) {
+        errorMessage = error.shortMessage;
+      }
+      this.log(colors.red(`Error in swap process: ${errorMessage} ❌`));
     }
   }
 
+  async swapWETHtoUSDC(wallet) {
+    const amount = getRandomNumber(settings.AMOUNT_SWAP[0], settings.AMOUNT_SWAP[1]);
+    await this._swap(wallet, CONTRACT_ADDRESSES.WETH, CONTRACT_ADDRESSES.USDC, amount, "WETH", "USDC");
+  }
+
   async handleSwap(wallet, type = "USDC_WETH") {
-    const numberSwap = settings.NUMBER_OF_TRANSFER;
+    const numberSwap = settings.NUMBER_OF_SWAP;
     this.log(colors.yellow(`Starting ${numberSwap} swaps...\n`));
 
     for (let i = 0; i < numberSwap; i++) {
@@ -573,101 +580,21 @@ class ClientAPI {
     }
   }
   async swapUSDCtoWETH(wallet) {
-    try {
-      const amount = getRandomNumber(1, 5);
-      const amountWei = ethers.parseUnits(amount.toString(), 6);
-      const feeData = await wallet.provider.getFeeData();
-      const estimatedGas = 300000n; // Sử dụng BigInt cho gas limit
-      const gasCost = feeData.gasPrice * estimatedGas;
-
-      const usdcContract = new ethers.Contract(CONTRACT_ADDRESSES.USDC, USDC_ABI, wallet);
-      const usdcBalance = await usdcContract.balanceOf(wallet.address);
-      if (usdcBalance < amountWei) {
-        this.log(colors.red(`Insufficient USDC balance. Available: ${ethers.formatUnits(usdcBalance, 6)}, Required: ${amount} USDC`));
-        return; // Không đủ USDC
-      }
-
-      const balance = await wallet.provider.getBalance(wallet.address);
-
-      if (balance < gasCost) {
-        this.log(colors.red(`Insufficient balance for gas. Available: ${ethers.formatEther(balance)} ETH | Required: ${ethers.formatEther(gasCost)} ETH 🚫`));
-        return; // Không đủ phí gas
-      }
-
-      const wethPerUsdc = 1 / 1071.568;
-      const expReturnAmount = ethers.parseUnits((amount * wethPerUsdc).toFixed(18), 18);
-      const minReturnAmount = ethers.parseUnits((amount * wethPerUsdc * 0.968).toFixed(18), 18);
-
-      const allowanceOk = await this.ensureTokenAllowance(wallet, CONTRACT_ADDRESSES.USDC, USDC_ABI, amountWei, CONTRACT_ADDRESSES.DODOFeeRouteProxy, "USDC");
-
-      if (!allowanceOk) {
-        this.log(colors.red("Cannot proceed with swap due to allowance issue. 🚫"));
-        return;
-      }
-
-      const dodoContract = new ethers.Contract(CONTRACT_ADDRESSES.DODOFeeRouteProxy, DODOFeeRouteProxyABI, wallet);
-      this.log(colors.yellow(`Swapping ${amount} USDC to WETH...`));
-
-      const mixAdapters = ["0x0f9053E174c123098C17e60A2B1FAb3b303f9e29"];
-      const mixPairs = ["0xc7E2B7C2519bB911bA4a1eeE246Cb05ACb0b1df1"];
-      const assetTo = ["0xc7E2B7C2519bB911bA4a1eeE246Cb05ACb0b1df1", CONTRACT_ADDRESSES.DODOFeeRouteProxy];
-      const moreInfos = ["0x00"];
-      const feeDataHex = "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-      const deadline = Math.floor(Date.now() / 1000) + 3600;
-      const nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-      for (const directions of [1, 0]) {
-        try {
-          this.log(colors.gray(`Attempting swap with directions=${directions}...`));
-          const tx = await dodoContract.mixSwap(
-            CONTRACT_ADDRESSES.USDC,
-            CONTRACT_ADDRESSES.WETH,
-            amountWei,
-            expReturnAmount,
-            minReturnAmount,
-            mixAdapters,
-            mixPairs,
-            assetTo,
-            directions,
-            moreInfos,
-            feeDataHex,
-            deadline,
-            {
-              gasLimit: estimatedGas,
-              maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
-              maxFeePerGas: feeData.maxFeePerGas,
-              nonce,
-            }
-          );
-          this.log(colors.white(`Transaction sent! Hash: ${colors.cyan(tx.hash)} 📤`));
-          const receipt = await tx.wait();
-          this.log(colors.green(`Transaction confirmed in block ${receipt.blockNumber} ✅`));
-          this.log(colors.green(`Successfully swapped ${amount} USDC to WETH! 🎉`));
-          break;
-        } catch (error) {
-          this.log(colors.red("Swap execution failed:", error.message, "❌"));
-          if (error.reason) {
-            this.log(colors.red(`Revert reason: ${error.reason}`));
-          }
-          if (error.data) {
-            this.log(colors.red(`Revert data: ${error.data}`));
-          }
-        }
-      }
-    } catch (error) {
-      this.log(colors.red(`Error in swap USDC process: ${error.message} ❌`));
-    }
+    const amount = getRandomNumber(1, 5);
+    await this._swap(wallet, CONTRACT_ADDRESSES.USDC, CONTRACT_ADDRESSES.WETH, amount, "USDC", "WETH");
   }
 
   async executeTransfers(wallet) {
-    const numberOfTransfers = wallets.length;
+    const numberOfTransfers = settings.NUMBER_OF_TRANSFER;
     this.log(colors.yellow(`Starting ${numberOfTransfers} transfers...\n`));
     const results = [];
-    for (let i = 0; i < wallets.length; i++) {
+    for (let i = 0; i < numberOfTransfers; i++) {
+      const receipt = getRandomElement(wallets);
       const amount = getRandomNumber(settings.AMOUNT_TRANSFER[0], settings.AMOUNT_TRANSFER[1]);
       if (amount === 0) continue;
 
-      this.log(colors.blue(`Transfer ${i + 1}/${numberOfTransfers} | Amount: ${amount} ETH`));
-      const result = await this.sendToAddress(wallet, amount, wallets[i]);
+      this.log(colors.blue(`Transfer ${i + 1}/${numberOfTransfers} | Amount: ${amount} ETH to ${receipt}`));
+      const result = await this.sendToAddress(wallet, amount, receipt);
 
       if (result) {
         results.push(result);
@@ -899,7 +826,7 @@ async function main() {
     "Unwrap WETH => ETH (GasPump)",
     "Swap WETH to USDC (GasPump)",
     "Swap USDC to WETH (GasPump)",
-    "Auto All",
+    "Auto All Task ID (setting in .env: TASKS_ID",
   ];
   titles.map((val, index) => console.log(colors.white(`[${index + 1}] ${val}`)));
   console.log(colors.white("===================="));

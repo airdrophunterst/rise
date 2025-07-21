@@ -140,8 +140,8 @@ function getRandomElement(arr) {
   return arr[randomIndex];
 }
 
-function getRandomNumber(min, max) {
-  return parseFloat((Math.random() * (max - min) + min).toFixed(6));
+function getRandomNumber(min, max, fixed = 6) {
+  return parseFloat((Math.random() * (max - min) + min).toFixed(fixed));
 }
 
 function loadData(file) {

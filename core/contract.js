@@ -12,7 +12,8 @@ const CONTRACT_ADDRESSES = {
   WrappedTokenGatewayV3: "0x832e537e88d0e8e5bb4efb735f521a9a0e085e0a",
   WETH: "0x4200000000000000000000000000000000000006",
   DODOFeeRouteProxy: "0x8c6DbF95448AcbcBb1c3D6E9b3b9ceF7E6fbAb00",
-  USDC: "0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8",
+  USDC: "0x8a93d247134d91e0de6f96547cb0204e5be8e5d8",
+  USDT: "0x40918ba7f132e0acba2ce4de4c4baf9bd2d7d849",
 };
 
 const WrappedTokenGatewayV3ABI = ["function depositETH(address arg0, address onBehalfOf, uint16 referralCode) payable", "function withdrawETH(address arg0, uint256 amount, address to)"];
